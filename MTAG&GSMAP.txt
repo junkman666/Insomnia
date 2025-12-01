@@ -1,0 +1,45 @@
+#####MTAG####
+python3 <MTAG_SCRIPT> \
+  --sumstats <GWAS_DIR>/<TRAIT1>.txt,<GWAS_DIR>/<TRAIT2>.txt \
+  --out <RESULT_DIR>/<TRAIT1>-<TRAIT2> \
+  --stream_stdout --perfect_gencov --equal_h2 --force
+
+
+
+#####GSMAP####
+
+
+cd ../../mnt/h/gsmap
+conda activate /home/xcx/miniconda3/envs/gsMap
+
+
+
+####AD_ST celltype
+gsmap quick_mode \
+  --workdir "./example_quick_mode/AD" \
+  --sample_name "AD" \
+  --gsMap_resource_dir "gsMap_resource" \
+  --hdf5_path "gsMap_example_data/ST/AD_ST_fixed_coords_with_celltype.h5ad" \
+  --annotation "celltype" \
+  --data_layer "logcounts" \
+  --sumstats_config_file 'gsMap_example_data/GWAS/gwas_config.yaml' 
+
+####AD_ST path_groups
+    gsmap quick_mode \
+    --workdir "./example_quick_mode/AD2" \
+    --sample_name "AD2" \
+    --gsMap_resource_dir "gsMap_resource" \
+    --hdf5_path "gsMap_example_data/ST/AD_ST_fixed_coords_with_celltype.h5ad" \
+    --annotation "path_groups" \
+    --data_layer "logcounts" \
+    --sumstats_config_file 'gsMap_example_data/GWAS/gwas_config.yaml' 
+
+####E16.5_E1S1.MOSTA
+    gsmap quick_mode \
+    --workdir "./example_quick_mode/Insomnia" \
+    --sample_name "Insomnia" \
+    --gsMap_resource_dir "gsMap_resource" \
+    --hdf5_path "gsMap_example_data/ST/E16.5_E1S1.MOSTA.h5ad" \
+    --annotation 'annotation' \
+    --data_layer 'count' \
+    --sumstats_config_file 'gsMap_example_data/GWAS/gwas_config.yaml' 

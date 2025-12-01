@@ -1,0 +1,111 @@
+###############################################################################
+# echolocatoR Fine-mapping Pipeline
+# Clean version for publication (no local paths)
+###############################################################################
+
+library(data.table)
+library(echolocatoR)
+library(echoplot)
+library(ggplot2)
+
+###############################################################################
+# Set output directory (relative path)
+###############################################################################
+results_dir <- "results/echolocatoR_output"
+
+
+###############################################################################
+# Load lead SNP file
+# The CSV file must contain a column named "SNP" or "rsid"
+###############################################################################
+lead_snp <- fread("input/lead_SNPs.csv")
+
+head(lead_snp)
+
+
+###############################################################################
+# Run echolocatoR fine-mapping
+# Inputs:
+#   - fullSS_path:   full summary statistics (.tsv.gz)
+#   - topSNPs:       data.frame of lead SNPs
+#   - LD_reference:  population reference panel
+#   - finemap_methods: choose desired fine-mapping approaches
+#   - bp_distance:   locus window size
+#   - results_dir:   output folder
+###############################################################################
+
+results <- echolocatoR::finemap_loci(
+  fullSS_path        = "input/<TRAIT>.tsv.gz",     # summary statistics file
+  LD_reference       = "1KGphase3",                # 1000 Genomes Phase 3
+  dataset_name       = "<TRAIT>",                  # trait name
+  fullSS_genome_build = "hg19",                    # genome build
+  topSNPs            = lead_snp,                   # lead SNP table
+  finemap_methods    = c("SUSIE","FINEMAP"),       # selected fine-mapping tools
+  bp_distance        = 1e5,                        # ±100kb window
+  munged             = TRUE,                       # summary stats already munged
+  results_dir        = results_dir,                
+  verbose            = TRUE
+)
+
+###############################################################################
+# End of pipeline
+###############################################################################
+
+
+
+###############################################################################
+# FOCUS Fine-mapping Pipeline
+# Clean version for publication
+###############################################################################
+
+# ---------------------------------------------
+# 1. Activate conda environment
+# ---------------------------------------------
+# Make sure you have installed FOCUS in a conda environment
+# conda create -n ma-focus python=3.8
+# conda activate ma-focus
+
+conda activate ma-focus
+
+
+# ---------------------------------------------
+# 2. Preprocess GWAS summary statistics
+# ---------------------------------------------
+# Input:
+#   ./gwas/<TRAIT>.txt
+# Output:
+#   ./gwas/<TRAIT>.cleaned.sumstats.gz
+
+focus munge ./gwas/<TRAIT>.txt \
+    --output ./gwas/<TRAIT>.cleaned
+
+
+# ---------------------------------------------
+# 3. Run FOCUS fine-mapping analysis
+# ---------------------------------------------
+# Inputs:
+#   1. Cleaned summary statistics
+#   2. LD reference (PLINK format)
+#   3. Focus database
+#   4. Tissue, chromosome, start/stop coordinates
+#   5. Prior probabilities, population location
+# Outputs:
+#   Fine-mapping results and locus plots in ./results/
+
+focus finemap \
+    ./gwas/<TRAIT>.cleaned.sumstats.gz \
+    ./1000G_EUR_Phase3_plink/1000G.EUR.QC.<CHR> \
+    ./multi_tissue/focus.db \
+    --tissue brain_cerebellum \
+    --chr <CHR> \
+    --start <START> \
+    --stop <STOP> \
+    --prior-prob "gencode37" \
+    --locations 37:EUR \
+    --plot \
+    --out ./results/multi_tissue/<TRAIT>_chr<CHR>
+
+
+###############################################################################
+# End of pipeline
+###############################################################################

@@ -1,0 +1,188 @@
+###############################################################################
+# LAVA Bivariate Analysis Pipeline (Publication-Ready)
+###############################################################################
+
+library(LAVA)
+library(data.table)
+library(dplyr)
+
+# -------------------------------
+# Step 1: Read loci file
+# -------------------------------
+loci <- read.loci("<LOCUS_FILE>")   # e.g., "LAVA_s2500_m25_f1_w200.txt"
+
+# -------------------------------
+# Step 2: Define input for LAVA
+# -------------------------------
+ALPS <- "aALPS"
+input <- process.input(
+  input.info.file = "<INFO_FILE>",   # input info file
+  sample.overlap.file = NULL,        # set NULL if no sample overlap
+  ref.prefix = "<REFERENCE_PREFIX>", # reference genotype data prefix
+  phenos = c("Insomnia", ALPS)      # phenotype names
+)
+
+# -------------------------------
+# Step 3: Set output folder
+# -------------------------------
+ALPS_FILE <- "<OUTPUT_FOLDER>"  # output folder for intermediate files
+setwd(ALPS_FILE)
+
+# -------------------------------
+# Step 4: Run bivariate analysis
+# -------------------------------
+all_bivar <- list()
+
+for (i in 1:nrow(loci)) {
+  
+  # Process the locus
+  locus_result <- process.locus(loci[i,], input)
+  
+  # Run univariate bivariate analysis
+  bivar_result <- run.univ.bivar(locus_result, univ.thresh = 2e-5, target = ALPS)
+  
+  # If result is not NULL, store it
+  if (!is.null(bivar_result$bivar)) {
+    tmp <- as.data.frame(bivar_result$bivar)
+    tmp$locus_id <- i
+    all_bivar[[length(all_bivar) + 1]] <- tmp
+  }
+}
+
+# Combine all bivariate results
+final_bivar <- do.call(rbind, all_bivar)
+
+# Save intermediate results
+setwd("<OUTPUT_FOLDER>")   # set to desired save location
+write.csv(final_bivar, "Left_ALPS.csv", row.names = FALSE)
+
+# -------------------------------
+# Step 5: Combine multiple CSV files and apply FDR
+# -------------------------------
+input_dir <- "<MERGED_INPUT_FOLDER>"   # folder containing CSV files
+files <- list.files(input_dir, full.names = TRUE)
+
+all_data <- list()
+
+for (f in files) {
+  dat <- fread(f)
+  
+  if (!"p" %in% names(dat)) {
+    warning(paste("File has no p column:", f))
+    next
+  }
+  
+  # Apply BH FDR correction
+  dat$FDR <- p.adjust(dat$p, method = "BH")
+  
+  # Filter significant loci
+  dat <- dat[dat$FDR < 0.05, ]
+  
+  if (nrow(dat) > 0) {
+    dat$source_file <- basename(f)
+    all_data[[length(all_data) + 1]] <- dat
+  }
+}
+
+# Merge all files
+final_result2 <- do.call(rbind, all_data)
+
+# -------------------------------
+# Step 6: Merge with loci information
+# -------------------------------
+merged_df <- final_result2 %>%
+  left_join(loci, by = c("locus_id" = "LOC"))
+
+# -------------------------------
+# Step 7: Save final output
+# -------------------------------
+write.csv(merged_df, "LAVA.csv", row.names = FALSE)
+
+
+
+
+
+
+###############################################################################
+# Merge GWAS summary stats and filter by LAVA loci
+###############################################################################
+
+library(data.table)
+library(dplyr)
+
+# -------------------------------
+# Step 1: Read GWAS summary statistics
+# -------------------------------
+A <- fread("<INSOMNIA_SUMSTATS>")   # e.g., "Insomnia.txt"
+B <- fread("<ALPS_SUMSTATS>")       # e.g., "aALPS.txt"
+
+# -------------------------------
+# Step 2: Calculate Z-scores and variance
+# -------------------------------
+A$Z <- A$b / A$se
+A$Var <- A$se^2
+A <- A[, c("SNP", "chr", "pos", "Z", "Var")]
+colnames(A) <- c("SNPID", "CHR", "POS", "Z_Insomnia", "V_Insomnia")
+
+B$Z <- B$BETA / B$SE
+B$Var <- B$SE^2
+B <- B[, c("SNP", "Z", "Var")]
+colnames(B) <- c("SNPID", "Z_aALPS", "V_aALPS")
+
+# -------------------------------
+# Step 3: Merge the two GWAS datasets
+# -------------------------------
+merged <- merge(A, B, by = "SNPID", all.x = FALSE, all.y = FALSE)
+merged <- merged[!duplicated(merged$SNPID), ]
+merged <- merged[order(as.numeric(CHR), as.numeric(POS))]
+
+# -------------------------------
+# Step 4: Filter merged data by LAVA loci
+# -------------------------------
+lava <- fread("<LAVA_RESULTS>")    # e.g., "LAVA.csv"
+
+results_list <- list()
+
+for (i in 1:nrow(lava)) {
+  chr_i   <- lava$CHR[i]
+  start_i <- lava$START[i]
+  stop_i  <- lava$STOP[i]
+  
+  # Subset merged GWAS data for this locus
+  subset_df <- merged %>%
+    filter(CHR == chr_i & POS >= start_i & POS <= stop_i)
+  
+  if (nrow(subset_df) == 0) next
+  
+  # Add locus information
+  subset_df$SEGMENT_ID <- sprintf("chr%s_%s_%s", chr_i, start_i, stop_i)
+  
+  results_list[[length(results_list) + 1]] <- subset_df
+}
+
+# Combine all loci results
+merged_filtered <- rbindlist(results_list, fill = TRUE)
+
+# -------------------------------
+# Step 5: Save filtered GWAS for downstream analysis
+# -------------------------------
+fwrite(
+  merged_filtered,
+  file = "Insomnia_aALPS.txt.gz",
+  sep = "\t",
+  quote = FALSE
+)
+
+
+
+
+# GWAS-PW analysis example
+# Navigate to the GWAS-PW directory
+cd <GWASPW_ROOT>   # e.g., "../../mnt/h/gwaspw"
+
+# Run GWAS-PW on merged GWAS summary statistics
+./src/gwas-pw \
+  -i <MERGED_GWAS_FILE>       # Input merged GWAS summary stats, e.g., "Insomnia_aALPS.txt.gz"
+  -phenos <PHENO1> <PHENO2>   # Phenotype names corresponding to the GWAS columns
+  -o <OUTPUT_PREFIX>          # Output prefix, e.g., "result/Insomnia_aALPS"
+  -bed <BED_FILE>             # BED file defining genomic segments, e.g., "Insomnia_aALPS.csv.bed"

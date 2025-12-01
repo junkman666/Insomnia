@@ -1,0 +1,60 @@
+# Required packages
+library(data.table)
+library(GPA)
+
+# --------------------------------------------
+# Function: process_data
+# --------------------------------------------
+# Input:
+#   fileA, fileB       - GWAS summary files containing columns: SNP, p
+#   output_prefix      - prefix for result files
+#
+# Output:
+#   Three CSV files: <prefix>_pi.csv, <prefix>_piSE.csv, <prefix>_pvalue.csv
+# --------------------------------------------
+
+process_data <- function(fileA, fileB, output_prefix) {
+  
+  # Load first trait
+  A <- fread(fileA)
+  A <- A[, .(snpid = SNP, pval = p)]
+  
+  # Load second trait
+  B <- fread(fileB)
+  B <- B[, .(snpid = SNP, pval = p)]
+  
+  # Merge by SNP
+  merged_data <- merge(A, B, by = "snpid", all = TRUE)
+  colnames(merged_data) <- c("snpid", "A", "B")
+  
+  # Remove missing values
+  merged_data <- na.omit(merged_data)
+  merged_data$B <- as.numeric(as.character(merged_data$B))
+  
+  # GPA analysis
+  fit.GPA.noAnn <- GPA(merged_data[, c("A", "B")])
+  fit.GPA.H0    <- GPA(merged_data[, c("A", "B")], NULL, pleiotropyH0 = TRUE)
+  test.result   <- pTest(fit.GPA.noAnn, fit.GPA.H0)
+  
+  # Extract results
+  L1 <- as.list(test.result$pi)
+  L2 <- as.list(test.result$piSE)
+  L3 <- as.list(test.result$pvalue)
+  
+  # Save to files
+  write.csv(L1,  paste0(output_prefix, "_pi.csv"),     row.names = FALSE)
+  write.csv(L2,  paste0(output_prefix, "_piSE.csv"),   row.names = FALSE)
+  write.csv(L3,  paste0(output_prefix, "_pvalue.csv"), row.names = FALSE)
+}
+
+# --------------------------------------------
+# Example usage
+# --------------------------------------------
+# Input files should be located in the same folder or a relative path.
+#
+# Each file must contain at least:
+#   SNP   p
+# --------------------------------------------
+
+# Example:
+# process_data("Insomnia.txt", "Left_ALPS.txt", "Insomnia-Left_ALPS")

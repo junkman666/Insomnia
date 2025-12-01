@@ -1,0 +1,113 @@
+############### Data preprocessing
+
+cd <PROJECT_ROOT>
+
+# 1. Convert raw → mixer format
+python3 sumstats.py csv \
+    --sumstats <DATA>/Insomnia_raw.txt \
+    --out <OUT>/Insomnia_mixer.csv \
+    --force --auto --head 5 \
+    --ncase-val <N_CASE> --ncontrol-val <N_CTRL>
+
+python3 sumstats.py csv \
+    --sumstats <DATA>/aALPS_raw.txt \
+    --out <OUT>/aALPS_mixer.csv \
+    --force --auto --head 5
+
+# 2. zscore → QC → NEFF → remove MHC
+python3 sumstats.py zscore --sumstats <OUT>/Insomnia_mixer.csv | \
+python3 sumstats.py qc --exclude-ranges 6:26000000-34000000 --max-or 1e37 | \
+python3 sumstats.py neff --drop --factor 4 \
+    --out <OUT>/Insomnia_qc_noMHC.csv --force
+
+gzip <OUT>/Insomnia_qc_noMHC.csv
+
+python3 sumstats.py zscore --sumstats <OUT>/aALPS_mixer.csv | \
+python3 sumstats.py qc --exclude-ranges 6:26000000-34000000 --max-or 1e37 | \
+python3 sumstats.py neff --drop --factor 4 \
+    --out <OUT>/aALPS_qc_noMHC.csv --force
+
+gzip <OUT>/aALPS_qc_noMHC.csv
+
+
+############### MIXER: fit1
+
+python3 ./mixer/precimed/mixer.py fit1 \
+        --trait1-file <OUT>/aALPS_qc_noMHC.csv.gz \
+        --out <RES>/aALPS.fit1.rep${rep} \
+        --extract ./mixer/reps/1000G.EUR.rep${rep}.snps \
+        --bim-file ./mixer/1000G/1000G.EUR.bim \
+        --ld-file ./mixer/1000G/1000G.EUR.run4.ld \
+        --lib ./mixer/src/build/lib/libbgmg.so
+
+python3 ./mixer/precimed/mixer.py fit1 \
+        --trait1-file <OUT>/Insomnia_qc_noMHC.csv.gz \
+        --out <RES>/Insomnia.fit1.rep${rep} \
+        --extract ./mixer/reps/1000G.EUR.rep${rep}.snps \
+        --bim-file ./mixer/1000G/1000G.EUR.bim \
+        --ld-file ./mixer/1000G/1000G.EUR.run4.ld \
+        --lib ./mixer/src/build/lib/libbgmg.so
+
+
+############### MIXER: fit2 (Insomnia + aALPS)
+
+python3 ./mixer/precimed/mixer.py fit2 \
+        --trait1-file <OUT>/Insomnia_qc_noMHC.csv.gz \
+        --trait2-file <OUT>/aALPS_qc_noMHC.csv.gz \
+        --trait1-params-file <RES>/Insomnia.fit1.rep${rep}.json \
+        --trait2-params-file <RES>/aALPS.fit1.rep${rep}.json \
+        --out <RES2>/Insomnia_vs_aALPS.fit.rep${rep} \
+        --extract ./mixer/reps/1000G.EUR.rep${rep}.snps \
+        --bim-file ./mixer/1000G/1000G.EUR.bim \
+        --ld-file ./mixer/1000G/1000G.EUR.run4.ld \
+        --lib ./mixer/src/build/lib/libbgmg.so
+
+
+############### MIXER: test2
+
+python3 ./mixer/precimed/mixer.py test2 \
+        --trait1-file <OUT>/Insomnia_qc_noMHC.csv.gz \
+        --trait2-file <OUT>/aALPS_qc_noMHC.csv.gz \
+        --load-params-file <RES2>/Insomnia_vs_aALPS.fit.rep${rep}.json \
+        --out <RES3>/Insomnia_vs_aALPS.test.rep${rep} \
+        --extract ./mixer/reps/1000G.EUR.rep${rep}.snps \
+        --bim-file ./mixer/1000G/1000G.EUR.bim \
+        --ld-file ./mixer/1000G/1000G.EUR.run4.ld \
+        --lib ./mixer/src/build/lib/libbgmg.so
+
+
+
+############### Combine & Plot
+
+# 1. Combine univariate fit replicates
+python3 ./mixer/precimed/mixer_figures.py combine \
+    --json <RES>/TRAIT.fit1.rep@.json \
+    --out <FIG>/TRAIT.fit
+
+# 2. Plot univariate figure
+python3 ./mixer/precimed/mixer_figures.py one \
+    --json <FIG>/TRAIT.fit.json \
+    --out <FIG>/TRAIT.fit \
+    --statistic mean std \
+    --ext svg
+
+
+# 3. Combine bivariate fit
+python3 ./mixer/precimed/mixer_figures.py combine \
+    --json <RES2>/TRAIT1_vs_TRAIT2.fit.rep@.json \
+    --out <FIG>/TRAIT1_vs_TRAIT2.fit
+
+# 4. Combine bivariate test
+python3 ./mixer/precimed/mixer_figures.py combine \
+    --json <RES3>/TRAIT1_vs_TRAIT2.test.rep@.json \
+    --out <FIG>/TRAIT1_vs_TRAIT2.test
+
+# 5. Plot bivariate figure
+python3 ./mixer/precimed/mixer_figures.py two \
+    --json-fit <FIG>/TRAIT1_vs_TRAIT2.fit.json \
+    --json-test <FIG>/TRAIT1_vs_TRAIT2.test.json \
+    --out <FIG>/TRAIT1_vs_TRAIT2 \
+    --trait1 TRAIT1 \
+    --trait2 TRAIT2 \
+    --statistic mean std \
+    --ext svg

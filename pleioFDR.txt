@@ -1,0 +1,118 @@
+###############################################################################
+# CFDR / pleioFDR Pipeline
+# Clean version for publication (no local paths, fully reproducible structure)
+# Steps:
+#   1. Convert summary statistics to .mat
+#   2. Run pleioFDR (MATLAB)
+#   3. Convert result.mat back to CSV
+#   4. Perform LD-clumping for condFDR / conjFDR
+#   5. Combine CFDR results with FUMA output
+###############################################################################
+
+
+###############################################################################
+# Step 1. Convert GWAS summary statistics into .mat format for pleioFDR
+###############################################################################
+
+python3 python_convert/sumstats.py mat \
+    --sumstats input/<TRAIT>.csv.gz \
+    --ref reference/<REF>.ref \
+    --out traitfolder/<TRAIT>.mat
+
+
+
+###############################################################################
+# Step 2. Run pleioFDR in MATLAB
+###############################################################################
+# Open MATLAB and run the following inside the pleioFDR directory:
+#
+#     runme
+#
+# The output will include "result.mat".
+###############################################################################
+
+
+
+###############################################################################
+# Step 3. Convert pleioFDR result.mat to CSV format
+###############################################################################
+
+python3 python_convert/fdrmat2csv.py \
+    --mat results/<TRAIT>/result.mat \
+    --ref reference/<REF>.ref \
+    --out results/<TRAIT>/result.mat.csv
+
+
+
+###############################################################################
+# Step 4. LD-clumping for CFDR lead SNPs (for FUMA annotation)
+#         condFDR: use --clump-p1 0.01
+#         conjFDR: use --clump-p1 0.05
+###############################################################################
+
+python3 python_convert/sumstats.py clump \
+    --clump-field FDR \
+    --force \
+    --plink tools/plink \
+    --sumstats results/<TRAIT>/result.mat.csv \
+    --bfile-chr reference/bfile/chr@ \
+    --exclude-ranges 6:25119106-33854733 8:7200000-12500000 \
+    --clump-p1 0.01 \
+    --out results/<TRAIT>/result.clump
+
+# (Change --clump-p1 to 0.05 for conjFDR)
+
+
+
+###############################################################################
+# Step 5. Combine CFDR and FUMA results
+#   These scripts merge pleioFDR lead SNPs with FUMA annotation output.
+###############################################################################
+
+
+# -------------------------------
+# 5.1 Combine condFDR + FUMA
+# -------------------------------
+# Input:
+#   1. condFDR lead SNP CSV
+#   2. FUMA snps.txt
+#   3. standardized sumstats (trait1)
+#   4. standardized sumstats (trait2)
+#   5. TRAIT1 name
+#   6. TRAIT2 name
+
+Rscript scripts/cond_fuma_combined.R \
+    fuma_input/cond.<TRAIT1>_<TRAIT2>.lead.csv \
+    fuma_output/FUMA_cond_<TRAIT1>_<TRAIT2>/snps.txt \
+    sumstats_std/<TRAIT1>.sumstats.gz \
+    sumstats_std/<TRAIT2>.sumstats.gz \
+    <TRAIT1> <TRAIT2>
+
+
+# -------------------------------
+# 5.2 Combine conjFDR (lead SNPs) + FUMA
+# -------------------------------
+
+Rscript scripts/conj_fuma_combined_lead.R \
+    fuma_input/conj.<TRAIT1>_<TRAIT2>.lead.csv \
+    fuma_output/FUMA_conj_<TRAIT1>_<TRAIT2>/snps.txt \
+    sumstats_std/<TRAIT1>.sumstats.gz \
+    sumstats_std/<TRAIT2>.sumstats.gz \
+    <TRAIT1> <TRAIT2>
+
+
+# -------------------------------
+# 5.3 Combine conjFDR (all SNPs) + FUMA
+# -------------------------------
+
+Rscript scripts/conj_fuma_combined_snps.R \
+    fuma_input/conj.<TRAIT1>_<TRAIT2>.snps.csv \
+    fuma_output/FUMA_conj_<TRAIT1>_<TRAIT2>/snps.txt \
+    sumstats_std/<TRAIT1>.sumstats.gz \
+    sumstats_std/<TRAIT2>.sumstats.gz \
+    <TRAIT1> <TRAIT2>
+
+
+###############################################################################
+# End of pipeline
+###############################################################################
